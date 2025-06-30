@@ -7,44 +7,51 @@ def ml_score(domain: str) -> float:
     """Returns a simulated ML score between 0 (malicious) and 1 (safe)."""
     return round(random.uniform(0.1,0.9),2)
 
-# Loads blacklist.txt from the same folder as this script, regardless of where it's run from
-def load_threat_intel(filepaths=[
-    os.path.join(os.path.dirname(__file__), "blacklist.txt"),
-    os.path.join(os.path.dirname(__file__), "test.txt")]) -> set:
-    
-    # making a set
+# Loads the necessary files
+def load_threat_intel(filepaths: list) -> set:
+    """Loads domains from a list of files and returns a combined set."""
     combined = set()
-
-    # looping over file(s) and opening in read mode
     for filepath in filepaths:
         try:
-            with open(filepath,"r") as f:
+            with open(filepath, "r") as f:
                 for line in f:
                     domain = line.strip().lower()
                     combined.add(domain)
         except FileNotFoundError:
-            continue # we can add a log error here too
+            continue
+    return combined
 
-    return combined 
-
-blacklist = load_threat_intel()
-# debug:
-print("Loaded blacklist:", blacklist)
+# Load threat intel files once
+bad_domains = load_threat_intel(["malicious_domains_cache.txt"])
+good_domains = load_threat_intel(["good_domains_cache.txt"])
 
 # Making Threat Intel Function:
 def threat_intel_score(domain: str) -> float:
-    """Returns a score based on threat feed presence."""
-    if domain.lower() in blacklist:
+    """Score based on threat intel sets preloaded from cache files."""
+    domain = domain.lower()
+    if domain in bad_domains:
         return 0.2
-    else:
+    elif domain in good_domains:
         return 1.0
+    else:
+        return 0.5  # Unknown
+
 
 
 if __name__ == "__main__":
-    
-    test_domains = ["google.com", "malicious-site.ru", "random123.biz","badactor.net"]
-    
+    # Get 5 sample domains from each set
+    bad_sample = list(bad_domains)[:5]
+    good_sample = list(good_domains)[:5]
+    unknown_sample = ["totallyunknownxyz.example"]
+
+    test_domains = bad_sample + good_sample + unknown_sample
+
+    # Print header
+    print(f"{'Domain':<60} | {'ML Score':<8} | {'Threat Intel Score'}")
+    print("-" * 90)
+
+    # Print scores in aligned format
     for domain in test_domains:
         ml = ml_score(domain)
         threat = threat_intel_score(domain)
-        print(f"{domain} → ML Score: {ml} | Threat Intel Score: {threat}")
+        print(f"{domain:<60} | {ml:<8} | {threat}")
