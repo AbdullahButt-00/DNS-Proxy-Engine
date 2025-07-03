@@ -1,0 +1,4 @@
+example.com
+badtest.com
+evil-phish.xyz
+crypto-scam.ru
