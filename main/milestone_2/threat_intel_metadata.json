@@ -1,0 +1,12 @@
+{
+  "last_update": 1749547131.4858193,
+  "malicious_count": 908652,
+  "good_count": 500000,
+  "unique_malicious": 908652,
+  "unique_good": 500000,
+  "sources": {
+    "malicious_feeds": 15,
+    "good_feeds": 3
+  },
+  "update_timestamp": "2025-06-10T09:18:52.476535"
+}

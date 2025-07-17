@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DNS Proxy Dashboard</title>
+  <style>
+    body        { background:#202020; color:#eee; font-family:monospace; display:flex;
+                  flex-direction:column; align-items:center; }
+    h1          { margin:1rem 0 0.5rem 0; }
+    #controls   { margin-bottom:1rem; }
+    button      { padding:0.4rem 0.8rem; font-family:inherit; cursor:pointer; }
+    table       { border-collapse:collapse; width:80vw; max-width:900px; }
+    th, td      { border:1px solid #444; padding:4px 6px; text-align:center; }
+    th          { background:#333; }
+    #rawlog     { width:80vw; max-width:900px; height:30vh; overflow-y:scroll;
+                  background:#111; border:1px solid #444; padding:0.5rem; margin-top:1rem; }
+    .info       { color:#6cf; }
+    .warning    { color:#fc6; }
+    .error      { color:#f66; }
+  </style>
+</head>
+<body>
+  <h1>DNS Proxy Dashboard</h1>
+
+  <!-- status + toggle -->
+  <div id="controls">
+    <span id="status"></span>
+    <button id="toggleBtn">Switch Mode</button>
+  </div>
+
+  <!-- parsed table -->
+  <table id="scoreTable">
+    <thead>
+      <tr>
+        <th>Time</th><th>Verdict</th><th>Domain</th><th>Score</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- raw log fallback -->
+  <div id="rawlog"></div>
+
+  <script>
+    async function fetchStatus() {
+      const res = await fetch("/status");
+      const st  = await res.json();
+      document.getElementById("status").innerHTML =
+        `<strong>Mode:</strong> ${st.mode} |
+         <strong>Block&nbsp;@</strong> ${st.block_threshold.toFixed(2)} |
+         <strong>Suspicious&nbsp;@</strong> ${st.suspicious_threshold.toFixed(2)}`;
+    }
+
+    async function toggleMode() {
+      const res = await fetch("/toggle_mode", {method:"POST"});
+      const st  = await res.json();
+      alert("Mode switched to " + st.mode);
+      fetchStatus();
+    }
+    document.getElementById("toggleBtn").onclick = toggleMode;
+
+    const rowRegex = /^(.*?) (INFO|WARNING|ERROR)\s+(ALLOW|BLOCK|SUSPICIOUS)\s+([^\s]+)\s+\(([\d.]+)\)/;
+
+    async function fetchLogs() {
+      const res   = await fetch("/logs");
+      const lines = await res.json();
+      // --- build table rows ---
+      const tbody = document.querySelector("#scoreTable tbody");
+      tbody.innerHTML = "";
+      lines.forEach(line => {
+        const m = line.match(rowRegex);
+        if (m) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            `<td>${m[1]}</td><td>${m[3]}</td><td>${m[4]}</td><td>${m[5]}</td>`;
+          tbody.appendChild(tr);
+        }
+      });
+      // --- raw fallback ---
+      const rawDiv = document.getElementById("rawlog");
+      rawDiv.innerHTML = lines
+        .map(l=>{
+          let cls="info";
+          if(l.includes("WARNING"))cls="warning";
+          if(l.includes("ERROR"))cls="error";
+          return `<div class="${cls}">${l}</div>`;
+        }).join("");
+      rawDiv.scrollTop = rawDiv.scrollHeight;
+    }
+
+    // initial + polling
+    fetchStatus(); fetchLogs();
+    setInterval(fetchStatus,2000);
+    setInterval(fetchLogs,1000);
+  </script>
+</body>
+</html>
