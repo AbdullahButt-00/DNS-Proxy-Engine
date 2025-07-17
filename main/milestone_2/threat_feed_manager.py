@@ -1,10 +1,7 @@
 # threat_feed_manager.py
-import re
-import time
-import logging
-import urllib3
 from typing import Set
 from urllib.parse import urlparse
+import re, time, logging, urllib3, requests
 
 # ── suppress InsecureRequestWarning ─────────────────────
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -47,6 +44,16 @@ class ThreatFeedManager:
             "https://raw.githubusercontent.com/mozilla/publicsuffix/master/public_suffix_list.dat",
         ]
 
+        # Additional “pro” blocklist URL
+        self.pro_feed = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/pro.txt"
+
+        # additional new link
+        self.nrd_tree_api = (
+    "https://api.github.com/repos/xRuffKez/NRD/git/trees/main?recursive=1"
+)
+        self.nrd_raw_base = "https://raw.githubusercontent.com/xRuffKez/NRD/main/"
+        self.nrd_prefix  = "lists/30-day_phishing/"
+
     # --------------------------------------------------------------------- #
     # Feed-fetching / parsing
     # --------------------------------------------------------------------- #
@@ -77,7 +84,8 @@ class ThreatFeedManager:
 
                     # 0) Regex catch-all — grabs domain from hosts-file / URL style
                     match = re.search(
-                        r"(?:(?:https?://)?(?:0\.0\.0\.0|127\.0\.0\.1)?\s*)([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",
+                        r"(?:(?:https?://)?(?:0\.0\.0\.0|127\.0\.0\.1)?\s*)"
+                        r"([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",
                         line,
                     )
                     if match:
@@ -138,9 +146,103 @@ class ThreatFeedManager:
         with open("good_domains_cache.txt", "w") as f:
             f.write("\n".join(sorted(self.good_domains)))
 
+        # ── NEW: fetch “pro” list and populate blacklist_domains.txt ────────
+        try:
+            r = session.get(self.pro_feed, timeout=30)
+            if r.status_code == 200:
+                lines = [l.strip().lower() for l in r.text.splitlines() if l.strip() and not l.startswith("#")]
+                with open("blacklist_domains.txt", "w") as f:
+                    f.write("\n".join(lines))
+                self.logger.info(f"PRO blocklist fetched: {len(lines)} domains written to blacklist_domains.txt")
+        except Exception as e:
+            self.logger.error(f"Failed to update blacklist_domains.txt from PRO list: {e}")
+
+            # ── NEW: pull the PRO list into blacklist_domains.txt ──────────
+        try:
+            r = requests.get(self.pro_feed, timeout=30)
+            if r.status_code == 200:
+                pro_domains = [l.strip().lower() for l in r.text.splitlines()
+                               if l.strip() and not l.startswith("#")]
+                with open("blacklist_domains.txt","w") as f:
+                    f.write("\n".join(pro_domains))
+                self.logger.info(f"[PRO] wrote {len(pro_domains)} domains → blacklist_domains.txt")
+        except Exception as e:
+            self.logger.error(f"[PRO] failed: {e}")
+
+        # ── NEW: pull _all_ the .txt files from NRD/30-day_phishing ────
+        self._fetch_nrd_phishing()
+
         self.last_update = time.time()
         self.logger.info(f"Feeds updated: +{total_bad} bad, +{total_good} good")
 
+
+    # Precompile a basic FQDN regex:
+    _DOMAIN_RE = re.compile(
+        r"^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
+    )
+
+    # ----------------------------------------------------------------------#
+    # Fetches every .txt in the 30-day-phishing folder
+    # ----------------------------------------------------------------------#
+    def _fetch_nrd_phishing(self):
+        """Fetch every .txt in the 30-day_phishing folder and append only clean domains."""
+        try:
+            session = requests.Session()
+            session.verify = False
+
+            # 1) List every file in the repo tree
+            r = session.get(self.nrd_tree_api, timeout=10)
+            r.raise_for_status()
+            tree = r.json().get("tree", [])
+
+            # 2) Pick only the .txt under our prefix
+            txt_paths = [
+                e["path"] for e in tree
+                if e["path"].startswith(self.nrd_prefix) and e["path"].endswith(".txt")
+            ]
+
+            new_domains = set()
+            for path in txt_paths:
+                raw_url = self.nrd_raw_base + path
+                rr = session.get(raw_url, timeout=10)
+                if rr.status_code != 200:
+                    continue
+
+                for line in rr.text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # skip metadata / comments
+                    if line.startswith(("!", "#")) or line.lower().startswith("local-zone:"):
+                        continue
+
+                    # strip adblock syntax
+                    if line.startswith("||"):
+                        clean = line[2:].rstrip("^")
+                    elif line.startswith("*."):
+                        clean = line[2:]
+                    else:
+                        clean = line
+
+                    clean = clean.lower()
+                    # only accept well-formed domains
+                    if self._DOMAIN_RE.match(clean):
+                        new_domains.add(clean)
+
+            if new_domains:
+                # merge into in-memory set
+                before = len(self.malicious_domains)
+                self.malicious_domains.update(new_domains)
+
+                # append cleaned domains to blacklist_domains.txt
+                with open("blacklist_domains.txt", "a") as f:
+                    for d in sorted(new_domains):
+                        f.write(d + "\n")
+
+                self.logger.info(f"[NRD] fetched +{len(new_domains)} phishing domains")
+
+        except Exception as e:
+            self.logger.error(f"[NRD] failed to fetch phishing lists: {e}")
     # --------------------------------------------------------------------- #
     # Cache-handling helpers
     # --------------------------------------------------------------------- #
