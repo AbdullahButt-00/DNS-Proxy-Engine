@@ -94,8 +94,8 @@ DNS_MAIN/
 ### Setup
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dns-secure.git
-cd dns-secure/MILESTONE3_SUBMIT
+[git clone https://github.com/yourusername/dns-secure.git](https://github.com/AbdullahButt-00/DNS-Proxy-Engine.git)
+cd dns-secure/DNS_MAIN
 
 # Create virtual environment
 python3 -m venv .venv
@@ -203,12 +203,6 @@ sudo ip addr del 192.168.1.100/32 dev lo
   - WHOIS syncing
   - Threat feed updates
   - Log management
-
----
-
-## 📝 License
-This project is licensed under the **MIT License**.  
-Feel free to use, modify, and distribute.
 
 ---
 
